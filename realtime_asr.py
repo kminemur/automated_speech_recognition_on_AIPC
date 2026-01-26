@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--seconds",
         type=float,
         default=2.5,
-        help="Chunk duration in seconds (default: 2.5).",
+        help="Max segment duration in seconds (default: 2.5).",
     )
     parser.add_argument(
         "--samplerate",
@@ -53,6 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["transcribe", "translate"],
         help="Task mode (default: transcribe).",
     )
+    parser.add_argument(
+        "--silence-threshold",
+        type=float,
+        default=0.01,
+        help="RMS threshold to treat as silence (default: 0.01).",
+    )
+    parser.add_argument(
+        "--silence-seconds",
+        type=float,
+        default=0.6,
+        help="Silence duration to split segments (default: 0.6).",
+    )
     return parser
 
 
@@ -71,9 +83,13 @@ def main() -> int:
 
     q: queue.Queue[np.ndarray] = queue.Queue()
 
-    chunk_samples = int(args.seconds * args.samplerate)
-    if chunk_samples <= 0:
-        print("Chunk duration must be > 0.", file=sys.stderr)
+    max_segment_samples = int(args.seconds * args.samplerate)
+    silence_samples = int(args.silence_seconds * args.samplerate)
+    if max_segment_samples <= 0:
+        print("Max segment duration must be > 0.", file=sys.stderr)
+        return 2
+    if silence_samples <= 0:
+        print("Silence duration must be > 0.", file=sys.stderr)
         return 2
 
     def audio_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
@@ -84,12 +100,15 @@ def main() -> int:
     print("Starting realtime ASR. Press Ctrl+C to stop.")
     print(f"Model: {args.model}")
     print(f"Device: {args.device}")
-    print(f"Chunk seconds: {args.seconds}")
+    print(f"Max segment seconds: {args.seconds}")
+    print(f"Silence seconds: {args.silence_seconds}")
+    print(f"Silence threshold (RMS): {args.silence_threshold}")
     print(f"Sample rate: {args.samplerate}")
 
     buffer = np.empty((0,), dtype=np.float32)
     last_text = ""
     last_norm = ""
+    silent_samples = 0
 
     filler_words = [
         "えー", "ええと", "えっと", "あの", "あのー", "その", "そのー",
@@ -142,9 +161,21 @@ def main() -> int:
                     data = data[:, 0]
                 buffer = np.concatenate((buffer, data))
 
-                while buffer.shape[0] >= chunk_samples:
-                    chunk = buffer[:chunk_samples]
-                    buffer = buffer[chunk_samples:]
+                rms = float(np.sqrt(np.mean(data ** 2))) if data.size else 0.0
+                if rms < args.silence_threshold:
+                    silent_samples += data.shape[0]
+                else:
+                    silent_samples = 0
+
+                should_flush = (
+                    buffer.shape[0] >= max_segment_samples
+                    or (silent_samples >= silence_samples and buffer.shape[0] > 0)
+                )
+
+                if should_flush:
+                    chunk = buffer
+                    buffer = np.empty((0,), dtype=np.float32)
+                    silent_samples = 0
 
                     result = pipe.generate(chunk, generation_config=gen_config)
                     elapsed = time.time() - last_emit
