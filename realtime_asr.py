@@ -103,10 +103,21 @@ def main() -> int:
     )
     banned_pattern = re.compile("|".join(map(re.escape, banned_phrases)))
 
+    def compress_words(text: str) -> str:
+        parts = text.split()
+        if not parts:
+            return ""
+        out = [parts[0]]
+        for token in parts[1:]:
+            if token != out[-1]:
+                out.append(token)
+        return " ".join(out)
+
     def postprocess_text(text: str) -> str:
         cleaned = banned_pattern.sub(" ", text)
         cleaned = filler_pattern.sub(" ", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = compress_words(cleaned)
         return cleaned
 
     try:
