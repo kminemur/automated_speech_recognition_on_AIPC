@@ -3,10 +3,12 @@ import queue
 import sys
 import time
 import re
+import collections
 
 import numpy as np
 import sounddevice as sd
 import openvino_genai as ov_genai
+import webrtcvad
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,16 +56,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Task mode (default: transcribe).",
     )
     parser.add_argument(
-        "--silence-threshold",
-        type=float,
-        default=0.01,
-        help="RMS threshold to treat as silence (default: 0.01).",
+        "--vad-aggressiveness",
+        type=int,
+        default=2,
+        choices=[0, 1, 2, 3],
+        help="VAD aggressiveness (0-3, higher is stricter).",
     )
     parser.add_argument(
-        "--silence-seconds",
-        type=float,
-        default=0.6,
-        help="Silence duration to split segments (default: 0.6).",
+        "--vad-frame-ms",
+        type=int,
+        default=20,
+        choices=[10, 20, 30],
+        help="VAD frame size in ms (10/20/30).",
+    )
+    parser.add_argument(
+        "--vad-silence-ms",
+        type=int,
+        default=600,
+        help="Silence duration to end segment (ms).",
+    )
+    parser.add_argument(
+        "--vad-min-speech-ms",
+        type=int,
+        default=200,
+        help="Minimum speech duration to start segment (ms).",
     )
     return parser
 
@@ -84,12 +100,12 @@ def main() -> int:
     q: queue.Queue[np.ndarray] = queue.Queue()
 
     max_segment_samples = int(args.seconds * args.samplerate)
-    silence_samples = int(args.silence_seconds * args.samplerate)
+    frame_samples = int(args.samplerate * args.vad_frame_ms / 1000)
     if max_segment_samples <= 0:
         print("Max segment duration must be > 0.", file=sys.stderr)
         return 2
-    if silence_samples <= 0:
-        print("Silence duration must be > 0.", file=sys.stderr)
+    if frame_samples <= 0:
+        print("VAD frame size must be > 0.", file=sys.stderr)
         return 2
 
     def audio_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
@@ -101,14 +117,39 @@ def main() -> int:
     print(f"Model: {args.model}")
     print(f"Device: {args.device}")
     print(f"Max segment seconds: {args.seconds}")
-    print(f"Silence seconds: {args.silence_seconds}")
-    print(f"Silence threshold (RMS): {args.silence_threshold}")
+    print(f"VAD aggressiveness: {args.vad_aggressiveness}")
+    print(f"VAD frame ms: {args.vad_frame_ms}")
+    print(f"VAD silence ms: {args.vad_silence_ms}")
+    print(f"VAD min speech ms: {args.vad_min_speech_ms}")
     print(f"Sample rate: {args.samplerate}")
 
     buffer = np.empty((0,), dtype=np.float32)
     last_text = ""
     last_norm = ""
-    silent_samples = 0
+    in_speech = False
+    silent_frames = 0
+    speech_frames = 0
+    segment_frames: list[np.ndarray] = []
+    pre_frames = max(1, int(300 / args.vad_frame_ms))
+    pre_buffer = collections.deque(maxlen=pre_frames)
+    min_speech_frames = max(1, int(args.vad_min_speech_ms / args.vad_frame_ms))
+    silence_end_frames = max(1, int(args.vad_silence_ms / args.vad_frame_ms))
+    vad = webrtcvad.Vad(args.vad_aggressiveness)
+
+    def emit_segment(segment: np.ndarray) -> None:
+        nonlocal last_emit, last_text, last_norm
+        if segment.size == 0:
+            return
+        result = pipe.generate(segment, generation_config=gen_config)
+        elapsed = time.time() - last_emit
+        last_emit = time.time()
+        text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
+        text = postprocess_text(text)
+        norm = normalize_sentence(text)
+        if text and norm != last_norm:
+            print(f"[{elapsed:.2f}s] {text}")
+            last_text = text
+            last_norm = norm
 
     filler_words = [
         "えー", "ええと", "えっと", "あの", "あのー", "その", "そのー",
@@ -161,32 +202,43 @@ def main() -> int:
                     data = data[:, 0]
                 buffer = np.concatenate((buffer, data))
 
-                rms = float(np.sqrt(np.mean(data ** 2))) if data.size else 0.0
-                if rms < args.silence_threshold:
-                    silent_samples += data.shape[0]
-                else:
-                    silent_samples = 0
+                while buffer.shape[0] >= frame_samples:
+                    frame = buffer[:frame_samples]
+                    buffer = buffer[frame_samples:]
 
-                should_flush = (
-                    buffer.shape[0] >= max_segment_samples
-                    or (silent_samples >= silence_samples and buffer.shape[0] > 0)
-                )
+                    pre_buffer.append(frame)
+                    pcm16 = (np.clip(frame, -1.0, 1.0) * 32767.0).astype(np.int16)
+                    is_speech = vad.is_speech(pcm16.tobytes(), args.samplerate)
 
-                if should_flush:
-                    chunk = buffer
-                    buffer = np.empty((0,), dtype=np.float32)
-                    silent_samples = 0
+                    if is_speech:
+                        speech_frames += 1
+                        silent_frames = 0
+                        if not in_speech and speech_frames >= min_speech_frames:
+                            in_speech = True
+                            segment_frames = list(pre_buffer)
+                        if in_speech:
+                            segment_frames.append(frame)
+                    else:
+                        if in_speech:
+                            segment_frames.append(frame)
+                        silent_frames += 1
+                        if not in_speech:
+                            speech_frames = 0
 
-                    result = pipe.generate(chunk, generation_config=gen_config)
-                    elapsed = time.time() - last_emit
-                    last_emit = time.time()
-                    text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
-                    text = postprocess_text(text)
-                    norm = normalize_sentence(text)
-                    if text and norm != last_norm:
-                        print(f"[{elapsed:.2f}s] {text}")
-                        last_text = text
-                        last_norm = norm
+                    if in_speech:
+                        segment_samples = sum(f.shape[0] for f in segment_frames)
+                        if segment_samples >= max_segment_samples:
+                            emit_segment(np.concatenate(segment_frames))
+                            segment_frames = []
+                            silent_frames = 0
+
+                        if silent_frames >= silence_end_frames and segment_frames:
+                            emit_segment(np.concatenate(segment_frames))
+                            segment_frames = []
+                            pre_buffer.clear()
+                            in_speech = False
+                            silent_frames = 0
+                            speech_frames = 0
     except KeyboardInterrupt:
         print("Stopping...")
         return 0
