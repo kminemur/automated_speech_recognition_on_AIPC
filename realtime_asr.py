@@ -4,6 +4,7 @@ import sys
 import time
 import re
 import collections
+import datetime
 
 import numpy as np
 import sounddevice as sd
@@ -141,13 +142,13 @@ def main() -> int:
         if segment.size == 0:
             return
         result = pipe.generate(segment, generation_config=gen_config)
-        elapsed = time.time() - last_emit
+        now_ts = datetime.datetime.now().strftime("%H:%M:%S")
         last_emit = time.time()
         text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
         text = postprocess_text(text)
         norm = normalize_sentence(text)
         if text and norm != last_norm:
-            print(f"[{elapsed:.2f}s] {text}")
+            print(f"[{now_ts}] {text}")
             last_text = text
             last_norm = norm
 
