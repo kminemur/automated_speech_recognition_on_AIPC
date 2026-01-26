@@ -27,8 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seconds",
         type=float,
-        default=1.0,
-        help="Chunk duration in seconds (default: 1.0).",
+        default=2.5,
+        help="Chunk duration in seconds (default: 2.5).",
     )
     parser.add_argument(
         "--samplerate",
