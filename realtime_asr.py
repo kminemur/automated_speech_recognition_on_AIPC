@@ -43,8 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--language",
-        default="<|en|>",
-        help="Language token (default: <|en|>).",
+        default="<|ja|>",
+        help="Language token (default: <|ja|>).",
     )
     parser.add_argument(
         "--task",
