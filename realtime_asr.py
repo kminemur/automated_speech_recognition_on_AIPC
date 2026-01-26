@@ -2,6 +2,7 @@ import argparse
 import queue
 import sys
 import time
+import re
 
 import numpy as np
 import sounddevice as sd
@@ -88,6 +89,25 @@ def main() -> int:
 
     buffer = np.empty((0,), dtype=np.float32)
 
+    filler_words = [
+        "えー", "ええと", "えっと", "あの", "あのー", "その", "そのー",
+        "まー", "まぁ", "うーん", "ええ", "うん", "えっとー",
+    ]
+    banned_phrases = [
+        "ご視聴ありがとうございました。",
+        "ご視聴ありがとうございました",
+    ]
+    filler_pattern = re.compile(
+        r"(?:^|\s)(?:" + "|".join(map(re.escape, filler_words)) + r")(?:$|\s)"
+    )
+    banned_pattern = re.compile("|".join(map(re.escape, banned_phrases)))
+
+    def postprocess_text(text: str) -> str:
+        cleaned = banned_pattern.sub(" ", text)
+        cleaned = filler_pattern.sub(" ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
     try:
         with sd.InputStream(
             samplerate=args.samplerate,
@@ -112,7 +132,9 @@ def main() -> int:
                     elapsed = time.time() - last_emit
                     last_emit = time.time()
                     text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
-                    print(f"[{elapsed:.2f}s] {text}")
+                    text = postprocess_text(text)
+                    if text:
+                        print(f"[{elapsed:.2f}s] {text}")
     except KeyboardInterrupt:
         print("Stopping...")
         return 0
