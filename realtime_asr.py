@@ -89,6 +89,7 @@ def main() -> int:
 
     buffer = np.empty((0,), dtype=np.float32)
     last_text = ""
+    last_norm = ""
 
     filler_words = [
         "えー", "ええと", "えっと", "あの", "あのー", "その", "そのー",
@@ -120,6 +121,11 @@ def main() -> int:
         cleaned = compress_words(cleaned)
         return cleaned
 
+    def normalize_sentence(text: str) -> str:
+        normalized = re.sub(r"\s+", " ", text).strip()
+        normalized = re.sub(r"[。．\.！!？?]+$", "", normalized)
+        return normalized
+
     try:
         with sd.InputStream(
             samplerate=args.samplerate,
@@ -145,9 +151,11 @@ def main() -> int:
                     last_emit = time.time()
                     text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
                     text = postprocess_text(text)
-                    if text and text != last_text:
+                    norm = normalize_sentence(text)
+                    if text and norm != last_norm:
                         print(f"[{elapsed:.2f}s] {text}")
                         last_text = text
+                        last_norm = norm
     except KeyboardInterrupt:
         print("Stopping...")
         return 0
