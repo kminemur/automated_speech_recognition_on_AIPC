@@ -88,6 +88,7 @@ def main() -> int:
     print(f"Sample rate: {args.samplerate}")
 
     buffer = np.empty((0,), dtype=np.float32)
+    last_text = ""
 
     filler_words = [
         "えー", "ええと", "えっと", "あの", "あのー", "その", "そのー",
@@ -133,8 +134,9 @@ def main() -> int:
                     last_emit = time.time()
                     text = result.get("text", str(result)) if isinstance(result, dict) else str(result)
                     text = postprocess_text(text)
-                    if text:
+                    if text and text != last_text:
                         print(f"[{elapsed:.2f}s] {text}")
+                        last_text = text
     except KeyboardInterrupt:
         print("Stopping...")
         return 0
