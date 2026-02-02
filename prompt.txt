@@ -1,1 +1,17 @@
-pyQtを使ってかっこいいUIを作り、リアルタイム音声を指定したwhisperモデルで認識するアプリをopenvinoを用いて作って
+PyQt6 + OpenVINO（openvino-genai）で「リアルタイム音声認識（Whisper）」アプリを作りたいです。
+
+要件:
+- PyQt6 でモダンでかっこいい UI（ダークテーマ）
+- マイク入力をリアルタイム処理し、VAD で区切って Whisper 推論
+- モデルはローカルの OpenVINO 形式フォルダ（例: `whisper-tiny-ov/` や `whisper-kotoba-ov/`）を選択できる
+- OpenVINO device を `CPU/GPU/NPU/AUTO` から選択できる
+- Start/Stop/Clear、ステータス表示、マイクレベル表示、認識テキストのログ表示
+- 推論/録音は UI をブロックしない（スレッド/ワーカー）
+
+既存構成（このリポジトリ）:
+- エンジン: `asr_engine.py`（音声入力 + VAD + WhisperPipeline）
+- GUI: `asr_gui.py`
+- エントリポイント: `app.py`（デフォルトGUI、`--cli` でCLI）
+- 起動: `run.bat`
+
+改善してほしい点があれば、この構成を壊さずに最小変更で実装してください。
