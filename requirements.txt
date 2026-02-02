@@ -1,15 +1,19 @@
-torch==2.8.0
-nncf==2.18.0
-onnx==1.18.0
+# Runtime deps for GUI/CLI realtime ASR
 numpy==2.1.1
-transformers==4.51.3
-optimum-intel==1.25.2
 openvino==2025.3
 openvino-tokenizers==2025.3
 openvino-genai==2025.3
 PyQt6==6.7.1
-datasets
-huggingface-hub
 sounddevice
-soundfile
 webrtcvad
+setuptools<81
+
+# Optional (model export / benchmarks). Uncomment if needed.
+# torch==2.8.0
+# onnx==1.18.0
+# transformers==4.51.3
+# optimum-intel==1.25.2
+# nncf==2.18.0
+# datasets
+# huggingface-hub
+# soundfile
