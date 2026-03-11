@@ -11,3 +11,5 @@
 - アプリはローカルの OpenVINO IR モデルだけでなく Hugging Face の Whisper モデル ID も受け付ける
 - モデル ID が指定された場合、初回起動時に自動ダウンロードし `optimum-cli export openvino` で IR に変換して再利用する
 - `setup.bat` は Python を自動検出して `.venv` を作成し、依存導入後に既定モデルのダウンロードと IR 変換も先に実行する
+- `run.bat` は既定で CLI を起動し、GUI は `--gui` 指定時のみ起動する
+- GUI の `Start` は安定性のためモデルロードをメインスレッドで行うため、開始直後に短時間 UI が停止することがある

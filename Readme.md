@@ -1,6 +1,6 @@
 # OpenVINO 2026.0 Realtime ASR App
 
-`prompt.txt` の要件に合わせて、PyQt6 GUI と CLI の両方を持つリアルタイム音声認識アプリを実装しています。認識エンジンは `openvino-genai` の `WhisperPipeline` を使い、入力区間の切り出しには WebRTC VAD を使います。ローカルの OpenVINO IR ディレクトリを直接指定できるほか、Hugging Face の Whisper モデル ID を指定すると初回起動時に自動ダウンロードと OpenVINO IR 変換を行います。
+`prompt.txt` の要件に合わせて、PyQt6 GUI と CLI の両方を持つリアルタイム音声認識アプリを実装しています。認識エンジンは `openvino-genai` の `WhisperPipeline` を使い、入力区間の切り出しには WebRTC VAD を使います。ローカルの OpenVINO IR ディレクトリを直接指定できるほか、Hugging Face の Whisper モデル ID を指定すると初回起動時に自動ダウンロードと OpenVINO IR 変換を行います。現状の起動導線は CUI ファーストで、まず CLI で動作確認し、その後必要なら GUI を明示起動する形です。
 
 ## Requirements
 
@@ -44,19 +44,31 @@ $env:SETUP_WEIGHT_FORMAT="int8"
 
 ## Run
 
-GUI:
+まず CUI で動作確認:
 
 ```powershell
 .\run.bat
 ```
 
-CLI:
+マイク一覧確認:
 
 ```powershell
-.\run.bat --cli
+.\run.bat --list-mics
 ```
 
-利用可能なマイク一覧:
+GUI を開く場合:
+
+```powershell
+.\run.bat --gui
+```
+
+`.\\run.bat` は既定で `--cli` を付けて起動します。GUI は `--gui` を明示した場合だけ起動します。
+
+GUI での注意:
+- `Start` を押した直後のモデルロード中は、Windows 上の安定性を優先してメインスレッドで初期化するため、一時的に UI が止まることがあります
+- モデルロード完了後の音声入力と推論処理はバックグラウンドで継続します
+
+`.venv` の Python から直接実行する場合:
 
 ```powershell
 .\.venv\Scripts\python.exe app.py --list-mics
@@ -70,7 +82,8 @@ CLI:
 
 - `--model` / `--model-id`: OpenVINO Whisper モデルディレクトリ、または Hugging Face モデル ID
 - `--device`: `CPU`, `GPU`, `NPU`, `AUTO`
-- `--cli`: GUI ではなくコンソールで実行
+- `--cli`: コンソールで実行
+- `--gui`: GUI を明示起動
 - `--sample-rate`: マイク入力サンプルレート
 - `--chunk-seconds`: 1 セグメントの最大長
 - `--language`: 既定値は `"<|ja|>"`
