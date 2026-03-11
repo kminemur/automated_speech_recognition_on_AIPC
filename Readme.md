@@ -19,13 +19,28 @@
 .\setup.bat
 ```
 
-`setup.bat` は仮想環境作成と依存導入に加えて、既定で `openai/whisper-tiny` のダウンロードと OpenVINO IR 変換まで実行します。別モデルを準備したい場合は環境変数で上書きできます。
+`setup.bat` は次を順に実行します。
+
+- 利用可能な Python を自動検出して `.venv` を作成
+- `requirements.txt` の依存導入
+- 既定モデル `openai/whisper-tiny` のダウンロード
+- `optimum-cli export openvino` による OpenVINO IR 変換
+
+Python の選択順は `py -3.10` → `py -3` → `python` です。つまり、Python 3.10 固定ではなく、利用可能な Python 3 系でセットアップできます。
+
+別モデルを準備したい場合は環境変数で上書きできます。
 
 ```powershell
 $env:SETUP_MODEL="openai/whisper-small"
+$env:SETUP_MODEL_CACHE_DIR=".cache_whisper"
 $env:SETUP_WEIGHT_FORMAT="int8"
 .\setup.bat
 ```
+
+補足:
+- 初回セットアップは `torch` なども入るため時間がかかります
+- 変換済みモデルは既定で `.cache_whisper\models\...` に保存されます
+- 2 回目以降は変換済みキャッシュがあれば再利用します
 
 ## Run
 
@@ -44,13 +59,13 @@ CLI:
 利用可能なマイク一覧:
 
 ```powershell
-python app.py --list-mics
+.\.venv\Scripts\python.exe app.py --list-mics
 ```
 
 ## Main options
 
 ```powershell
-python app.py --model openai/whisper-tiny --device AUTO --chunk-seconds 1.0
+.\.venv\Scripts\python.exe app.py --model openai/whisper-tiny --device AUTO --chunk-seconds 1.0
 ```
 
 - `--model` / `--model-id`: OpenVINO Whisper モデルディレクトリ、または Hugging Face モデル ID
