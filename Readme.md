@@ -1,17 +1,15 @@
 # OpenVINO 2026.0 Realtime ASR App
 
-`prompt.txt` の要件に合わせて、PyQt6 GUI と CLI の両方を持つリアルタイム音声認識アプリを実装しています。認識エンジンは `openvino-genai` の `WhisperPipeline` を使い、入力区間の切り出しには WebRTC VAD を使います。ローカルの OpenVINO IR ディレクトリを直接指定できるほか、Hugging Face の Whisper モデル ID を指定すると初回起動時に自動ダウンロードと OpenVINO IR 変換を行います。現状の起動導線は CUI ファーストで、まず CLI で動作確認し、その後必要なら GUI を明示起動する形です。
+OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を使った、Windows 向けのリアルタイム音声認識アプリです。CLI と PyQt6 GUI の両方を提供します。
+
+マイク入力を `sounddevice` で取得し、WebRTC VAD で発話区間を切り出し、その区間だけを Whisper に渡して認識します。モデル指定はローカル OpenVINO IR ディレクトリか Hugging Face model ID のどちらでも受け付けます。
 
 ## Requirements
 
-- Windows / PowerShell
+- Windows
+- PowerShell または cmd
 - Python 3.10 以上
-- OpenVINO 2026.0 が動作する CPU / GPU / NPU
-- OpenVINO 形式の Whisper モデルディレクトリ、または Hugging Face の Whisper モデル ID
-  - ローカル IR 例: `whisper-kotoba-ov`
-  - ローカル IR 例: `ir_kotoba`
-  - 自動変換例: `openai/whisper-tiny`
-  - 自動変換例: `openai/whisper-small`
+- OpenVINO 2026.0 系
 
 ## Setup
 
@@ -19,16 +17,14 @@
 .\setup.bat
 ```
 
-`setup.bat` は次を順に実行します。
+`setup.bat` は次を行います。
 
-- 利用可能な Python を自動検出して `.venv` を作成
-- `requirements.txt` の依存導入
-- 既定モデル `openai/whisper-tiny` のダウンロード
-- `optimum-cli export openvino` による OpenVINO IR 変換
+- `python`、`py -3`、`py` の順で Python 3.10+ を探す
+- `.venv` を作成する
+- `requirements.txt` をインストールする
+- 既定モデル `openai/whisper-tiny` を `.cache_whisper` に準備する
 
-Python の選択順は `py -3.10` → `py -3` → `python` です。つまり、Python 3.10 固定ではなく、利用可能な Python 3 系でセットアップできます。
-
-別モデルを準備したい場合は環境変数で上書きできます。
+別モデルを使う場合:
 
 ```powershell
 $env:SETUP_MODEL="openai/whisper-small"
@@ -37,41 +33,24 @@ $env:SETUP_WEIGHT_FORMAT="int8"
 .\setup.bat
 ```
 
-補足:
-- 初回セットアップは `torch` なども入るため時間がかかります
-- 変換済みモデルは既定で `.cache_whisper\models\...` に保存されます
-- 2 回目以降は変換済みキャッシュがあれば再利用します
-
 ## Run
 
-まず CUI で動作確認:
+CLI:
 
 ```powershell
 .\run.bat
 ```
 
-マイク一覧確認:
+マイク一覧:
 
 ```powershell
 .\run.bat --list-mics
 ```
 
-GUI を開く場合:
+GUI:
 
 ```powershell
 .\run.bat --gui
-```
-
-`.\\run.bat` は既定で `--cli` を付けて起動します。GUI は `--gui` を明示した場合だけ起動します。
-
-GUI での注意:
-- `Start` を押した直後のモデルロード中は、Windows 上の安定性を優先してメインスレッドで初期化するため、一時的に UI が止まることがあります
-- モデルロード完了後の音声入力と推論処理はバックグラウンドで継続します
-
-`.venv` の Python から直接実行する場合:
-
-```powershell
-.\.venv\Scripts\python.exe app.py --list-mics
 ```
 
 ## Main options
@@ -80,20 +59,35 @@ GUI での注意:
 .\.venv\Scripts\python.exe app.py --model openai/whisper-tiny --device AUTO --chunk-seconds 1.0
 ```
 
-- `--model` / `--model-id`: OpenVINO Whisper モデルディレクトリ、または Hugging Face モデル ID
-- `--device`: `CPU`, `GPU`, `NPU`, `AUTO`
-- `--cli`: コンソールで実行
-- `--gui`: GUI を明示起動
-- `--sample-rate`: マイク入力サンプルレート
-- `--chunk-seconds`: 1 セグメントの最大長
-- `--language`: 既定値は `"<|ja|>"`
+- `--model` / `--model-id`: ローカル IR ディレクトリまたは Hugging Face model ID
+- `--device`: `AUTO`, `CPU`, `GPU`, `NPU`
+- `--gui`: GUI を起動
+- `--cli`: CLI を明示
+- `--sample-rate`: 既定 `16000`
+- `--chunk-seconds`: 引数としては残っているが、現行実装では VAD ベースの区切りが中心
+- `--language`: 既定 `"<|ja|>"`
 - `--task`: `transcribe` または `translate`
-- `--model-cache-dir`: 自動ダウンロード/変換済みモデルの保存先
-- `--weight-format`: 自動変換時の精度。`fp16` または `int8`
+- `--model-cache-dir`: 自動変換したモデルの保存先
+- `--weight-format`: 例 `int8`, `fp16`
+- `--mic`: マイク index
+
+## Model notes
+
+現行アプリは次の IR が揃っていれば有効モデルとして扱います。
+
+- `openvino_encoder_model.xml/.bin`
+- `openvino_decoder_model.xml/.bin`
+- `openvino_tokenizer.xml`
+- `openvino_detokenizer.xml`
+
+`openvino_decoder_with_past_model.xml/.bin` は任意扱いです。不足時はログ警告を出しますが、`WhisperPipeline` の初期化を試みます。
 
 ## Files
 
-- `asr_engine.py`: 共通のリアルタイム認識エンジン
+- `app.py`: エントリポイント
+- `model_manager.py`: モデル検証と自動変換
+- `asr_engine.py`: 共通リアルタイム ASR エンジン
+- `realtime_asr.py`: CLI ランナー
 - `asr_gui.py`: PyQt6 GUI
-- `app.py`: GUI/CLI の起動エントリーポイント
-- `realtime_asr.py`: 互換用 CLI ラッパー
+- `setup.bat`: セットアップ
+- `run.bat`: 実行ラッパー

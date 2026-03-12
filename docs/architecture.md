@@ -1,122 +1,183 @@
-# 音声認識アプリ アーキテクチャ
+# Realtime ASR App Architecture
 
-## 1. 構成
+## 1. File layout
 
 ```text
 app.py
-  -> CLI 起動 or GUI 起動
-  -> 共通設定 ASRConfig を生成
+  Entry point
+  Parses CLI args
+  Switches between CLI and GUI
 
 model_manager.py
-  -> モデル入力値の解決
-  -> Hugging Face model ID の自動変換
-  -> Whisper GenAI 用 IR の妥当性検証
+  Validates local IR directories
+  Exports Hugging Face Whisper models to OpenVINO IR
+  Distinguishes required IR files from optional decoder_with_past files
 
 asr_engine.py
-  -> マイク入力
-  -> VAD
-  -> 発話バッファリング
-  -> WhisperPipeline 推論
+  Shared realtime ASR engine
+  Captures microphone audio
+  Applies WebRTC VAD
+  Runs WhisperPipeline inference
 
 realtime_asr.py
-  -> CLI ラッパー
+  CLI runner
+  Prints status, logs, and transcripts
 
 asr_gui.py
-  -> PyQt6 GUI
-  -> バックグラウンド起動
-  -> 状態 / ログ / 結果表示
+  PyQt6 GUI
+  Runs the engine on a worker thread
+  Displays status, logs, and transcripts
+
+setup.bat
+  Finds Python 3.10+
+  Creates .venv
+  Installs dependencies
+  Prepares default model
+
+run.bat
+  Activates .venv
+  Runs app.py
 ```
 
-## 2. データフロー
+## 2. Startup flow
 
-1. ユーザーが `app.py` を起動する
-2. 引数を `ASRConfig` にまとめる
-3. `model_manager.py` がモデルを解決する
-4. model ID の場合は OpenVINO IR に変換する
-5. `asr_engine.py` が `WhisperPipeline` をロードする
-6. `sounddevice.InputStream` でマイク入力を取得する
-7. WebRTC VAD で発話区間を判定する
-8. 発話セグメントを `WhisperPipeline.generate()` に渡す
-9. 結果を CLI または GUI に表示する
+### 2.1 Setup
 
-## 3. モデル管理ポリシー
+`setup.bat` の処理順:
 
-### 3.1 許可するモデル
+1. `python` を試す
+2. `py -3` を試す
+3. `py` を試す
+4. Python 3.10+ なら採用する
+5. `.venv` を作成する
+6. `requirements.txt` をインストールする
+7. `ensure_model_available()` を呼び、既定モデルを準備する
 
-- OpenVINO Whisper GenAI 用 IR ディレクトリ
-- Hugging Face 上の Whisper model ID
+既定値:
 
-### 3.2 model ID からの変換
+- `SETUP_MODEL=openai/whisper-tiny`
+- `SETUP_MODEL_CACHE_DIR=.cache_whisper`
+- `SETUP_WEIGHT_FORMAT=int8`
 
-変換コマンドは必ず次と同義であること。
+### 2.2 Run
 
-```powershell
-optimum-cli export openvino ^
-  --model <model_id> ^
-  --task automatic-speech-recognition-with-past ^
-  --weight-format <weight_format> ^
-  <output_dir>
-```
+`run.bat` は `.venv` の存在を確認し、`python app.py %*` を実行する薄いラッパーである。
 
-### 3.3 禁止事項
+## 3. App flow
 
-次のような IR を `WhisperPipeline` に渡さない。
+### 3.1 Entry point
 
-- `automatic-speech-recognition` で変換した IR
-- `openvino_decoder_with_past_model.xml` を持たない IR
-- tokenizer / detokenizer が揃っていない IR
+`app.py` は次を担当する。
 
-### 3.4 妥当性検証
+- 引数解析
+- `--list-mics` の即時処理
+- `ASRConfig` の生成
+- CLI / GUI の分岐
 
-`model_manager.py` はロード前に必須ファイルを検査する。
-キャッシュ済みモデルが不正なら削除し、再エクスポートする。
+既定動作は CLI 起動で、`--gui` 指定時のみ GUI を起動する。
 
-## 4. エラー設計
+### 3.2 Model resolution
 
-### 4.1 再発防止したい代表例
+`model_manager.ensure_model_available()` は次の順でモデルを解決する。
 
-```text
-Port for tensor name beam_idx was not found.
-```
+1. 引数が有効な IR ディレクトリか判定する
+2. `cache_dir / model.replace("/", "--")` に既存変換済みモデルがあるか判定する
+3. なければ `optimum-cli export openvino` を実行する
+4. `optimum-cli` が見つからない場合は `python -m optimum.exporters.openvino` を使う
+5. 必須 IR が揃っているか再検証する
 
-意味:
+必須 IR:
 
-- `WhisperPipeline` が期待する decoder-with-past 系の入力が無い
-- ほぼ確実にモデル変換方式が誤っている
+- encoder
+- decoder
+- tokenizer
+- detokenizer
 
-対策:
+任意 IR:
 
-- docs に `with-past` 必須を明記する
-- `setup.bat` も実行時の自動変換も同じ設定にする
-- 必須ファイル検査で早めに落とす
+- `decoder_with_past`
 
-### 4.2 UI / CLI の状態
+任意 IR が無い場合でもモデルは有効とする。  
+`asr_engine.py` は不足をログ出力した上で `WhisperPipeline` の初期化を試みる。
 
-状態は次を使う。
+エクスポート時の task は固定で `automatic-speech-recognition-with-past` を使う。
+
+## 4. Audio pipeline
+
+`asr_engine.RealtimeASREngine` は共有エンジンであり、CLI と GUI の両方から利用される。
+
+処理の流れ:
+
+1. モデルを準備する
+2. 任意 IR の不足を確認し、必要なら警告ログを出す
+3. `WhisperPipeline` を生成する
+4. generation config に `language` `task` `return_timestamps` を設定する
+5. `sounddevice.InputStream` でマイク入力を開始する
+6. コールバックで float32 音声をキューへ入れる
+7. ワーカースレッド側で PCM16 に変換し、WebRTC VAD で発話判定する
+8. 発話セグメントを連結して `pipeline.generate(audio.tolist())` を呼ぶ
+9. テキストを抽出してイベントとして返す
+
+既定設定:
+
+- `sample_rate=16000`
+- `block_duration_ms=30`
+- `silence_ms_to_flush=700`
+- `pre_speech_padding_ms=300`
+- `vad_aggressiveness=2`
+- `max_buffer_seconds=15.0`
+
+## 5. CLI design
+
+`realtime_asr.py` の責務:
+
+- マイク一覧表示
+- ステータス出力
+- ログ出力
+- 認識テキスト出力
+- `SIGINT` / `SIGTERM` による停止
+
+ステータスは少なくとも次を使う。
 
 - `Loading model`
 - `Listening`
 - `Transcribing`
-- `Stopped`
 - `Error`
+- `Stopped`
 
-## 5. スレッド設計
+ワーカースレッド内の例外はログとステータスに変換し、不要な traceback を表に出さない。
 
-### 5.1 CLI
+## 6. GUI design
 
-- メインスレッドで起動
-- 音声処理は `RealtimeASREngine` 内のワーカースレッドで処理
+`asr_gui.py` は `QThread` 上でエンジンを動かす。
 
-### 5.2 GUI
+構成:
 
-- Qt のメインスレッドは UI 専用
-- モデルロード開始は `QThread` で行う
-- エンジンからの通知は signal 経由で UI に反映する
+- `ASRWorker`
+  - `RealtimeASREngine` の起動と停止
+  - status / log / transcript の signal 中継
+- `MainWindow`
+  - モデル入力
+  - デバイス選択
+  - マイク選択
+  - `Start` `Stop` `Clear`
+  - ステータス表示
+  - 認識結果表示
+  - ログ表示
 
-## 6. 将来拡張
+## 7. Error handling policy
 
-- 認識履歴の保存
+- Python 3.10+ が見つからなければ `setup.bat` は即時終了する
+- `.venv` がなければ `run.bat` は `setup.bat` 実行を要求して終了する
+- 変換後に必須 IR が欠けていれば例外を投げる
+- 任意 IR が欠けていても警告ログのみで続行する
+- 推論や音声入力で例外が出たら `Error` ステータスを通知する
+
+## 8. Current gaps
+
+実装済みでない項目:
+
+- 認識結果のファイル保存
+- GUI 上での高度な VAD 調整
 - SRT / TXT 出力
-- VAD パラメータの GUI 詳細設定
-- モデル切り替え時の事前検証 UI
-- 失敗モデルの自動隔離
+- バックグラウンド再試行や進捗バー
