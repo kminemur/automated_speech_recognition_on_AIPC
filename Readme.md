@@ -1,15 +1,14 @@
 # OpenVINO 2026.0 Realtime ASR App
 
-OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を使った、Windows 向けのリアルタイム音声認識アプリです。CLI と PyQt6 GUI の両方を提供します。
-
-マイク入力を `sounddevice` で取得し、WebRTC VAD で発話区間を切り出し、その区間だけを Whisper に渡して認識します。モデル指定はローカル OpenVINO IR ディレクトリか Hugging Face model ID のどちらでも受け付けます。
+Windows realtime speech recognition app built on OpenVINO 2026.0 and `openvino-genai` `WhisperPipeline`.
+It supports both CLI and PyQt6 GUI modes.
 
 ## Requirements
 
 - Windows
-- PowerShell または cmd
-- Python 3.10 以上
-- OpenVINO 2026.0 系
+- PowerShell or `cmd`
+- Python 3.10+
+- OpenVINO 2026.0
 
 ## Setup
 
@@ -17,14 +16,14 @@ OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を使った、Window
 .\setup.bat
 ```
 
-`setup.bat` は次を行います。
+`setup.bat`:
 
-- `python`、`py -3`、`py` の順で Python 3.10+ を探す
-- `.venv` を作成する
-- `requirements.txt` をインストールする
-- 既定モデル `openai/whisper-tiny` を `.cache_whisper` に準備する
+- finds Python 3.10+
+- creates `.venv`
+- installs `requirements.txt`
+- prepares the default model `openai/whisper-tiny` in `.cache_whisper`
 
-別モデルを使う場合:
+Optional setup variables:
 
 ```powershell
 $env:SETUP_MODEL="openai/whisper-small"
@@ -41,7 +40,7 @@ CLI:
 .\run.bat
 ```
 
-マイク一覧:
+List microphones:
 
 ```powershell
 .\run.bat --list-mics
@@ -55,39 +54,41 @@ GUI:
 
 ## Main options
 
-```powershell
-.\.venv\Scripts\python.exe app.py --model openai/whisper-tiny --device AUTO --chunk-seconds 1.0
-```
-
-- `--model` / `--model-id`: ローカル IR ディレクトリまたは Hugging Face model ID
+- `--model` / `--model-id`: local OpenVINO IR directory or Hugging Face model ID
 - `--device`: `AUTO`, `CPU`, `GPU`, `NPU`
-- `--gui`: GUI を起動
-- `--cli`: CLI を明示
-- `--sample-rate`: 既定 `16000`
-- `--chunk-seconds`: 引数としては残っているが、現行実装では VAD ベースの区切りが中心
-- `--language`: 既定 `"<|ja|>"`
-- `--task`: `transcribe` または `translate`
-- `--model-cache-dir`: 自動変換したモデルの保存先
-- `--weight-format`: 例 `int8`, `fp16`
-- `--mic`: マイク index
+- `--gui`: run GUI mode
+- `--cli`: run CLI mode
+- `--language`: default `"<|ja|>"`
+- `--task`: `transcribe` or `translate`
+- `--model-cache-dir`: model cache directory
+- `--weight-format`: `int8`, `fp16`, `fp32`
+- `--mic`: microphone index
+
+## Language handling
+
+- Default `--language` is `"<|ja|>"`.
+- `--language ja` is accepted, but it is normalized to the actual token defined by the selected model's `generation_config.json`.
+- If the selected model does not contain the requested language in `lang_to_id`, the app stops with a clear configuration error.
 
 ## Model notes
 
-現行アプリは次の IR が揃っていれば有効モデルとして扱います。
+Required IR files:
 
 - `openvino_encoder_model.xml/.bin`
 - `openvino_decoder_model.xml/.bin`
 - `openvino_tokenizer.xml`
 - `openvino_detokenizer.xml`
 
-`openvino_decoder_with_past_model.xml/.bin` は任意扱いです。不足時はログ警告を出しますが、`WhisperPipeline` の初期化を試みます。
+Optional IR files:
+
+- `openvino_decoder_with_past_model.xml/.bin`
 
 ## Files
 
-- `app.py`: エントリポイント
-- `model_manager.py`: モデル検証と自動変換
-- `asr_engine.py`: 共通リアルタイム ASR エンジン
-- `realtime_asr.py`: CLI ランナー
+- `app.py`: entry point
+- `model_manager.py`: model validation and export
+- `asr_engine.py`: shared realtime ASR engine
+- `realtime_asr.py`: CLI runner
 - `asr_gui.py`: PyQt6 GUI
-- `setup.bat`: セットアップ
-- `run.bat`: 実行ラッパー
+- `setup.bat`: setup script
+- `run.bat`: launcher

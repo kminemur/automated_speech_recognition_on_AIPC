@@ -1,8 +1,8 @@
 # Docs
 
-このディレクトリは、現在の realtime ASR アプリ実装に対応する仕様書です。
+This directory contains the implementation-facing specification for the realtime ASR app.
 
-対象実装:
+## Covered files
 
 - `setup.bat`
 - `run.bat`
@@ -12,24 +12,29 @@
 - `realtime_asr.py`
 - `asr_gui.py`
 
-読む順序:
+## Main documents
 
 1. `requirements.md`
 2. `architecture.md`
 
-前提:
+## Runtime assumptions
 
-- Windows
-- PowerShell または cmd
-- Python 3.10 以上
-- OpenVINO 2026.0 系
-- `openvino-genai` の `WhisperPipeline`
+- OS: Windows
+- Shell: PowerShell or `cmd`
+- Python: 3.10+
+- Runtime: OpenVINO 2026.0
+- ASR backend: `openvino-genai` `WhisperPipeline`
 
-実装上の重要事項:
+## Important rules
 
-- `setup.bat` は `python`、`py -3`、`py` の順に Python を検出する
-- Python 3.10 未満は受け付けない
-- モデルはローカル IR ディレクトリ、または Hugging Face の model ID を指定できる
-- model ID の場合は `automatic-speech-recognition-with-past` で OpenVINO IR を自動生成する
-- 現行アプリでは encoder / decoder / tokenizer / detokenizer が揃っていれば有効モデルとして扱う
-- `openvino_decoder_with_past_model.xml` と `openvino_decoder_with_past_model.bin` は任意扱いで、不足時は警告ログのみ出す
+- `setup.bat` must find Python in this order: `python`, `py -3`, `py`.
+- The app supports either a local OpenVINO Whisper IR directory or a Hugging Face model ID.
+- Exported models use the `automatic-speech-recognition-with-past` task.
+- Required IR files are `encoder`, `decoder`, `tokenizer`, and `detokenizer`.
+- `decoder_with_past` files are optional. Missing optional files should be logged clearly.
+
+## Language handling
+
+- Default `--language` is `"<|ja|>"`.
+- The app may accept shorthand values such as `ja`, but must normalize them to a key that exists in `generation_config.json` `lang_to_id`.
+- If the selected model does not expose the requested language, the app must stop with a clear configuration error before transcription starts.

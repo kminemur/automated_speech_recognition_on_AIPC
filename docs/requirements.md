@@ -2,50 +2,48 @@
 
 ## 1. Goal
 
-Windows 上で動作するリアルタイム音声認識アプリを提供する。  
-OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を利用し、CLI と GUI の両方から使えること。
+Build a Windows realtime speech recognition app using OpenVINO 2026.0 and `openvino-genai` `WhisperPipeline`.
+The app must support both CLI and PyQt6 GUI operation.
 
 ## 2. Supported runtime
 
 - OS: Windows
-- Shell: PowerShell / cmd
-- Python: 3.10 以上
-- Runtime: OpenVINO 2026.0 系
-- Audio input: マイク入力
+- Shell: PowerShell / `cmd`
+- Python: 3.10+
+- Runtime: OpenVINO 2026.0
+- Audio input: microphone
 
 ## 3. Functional requirements
 
 ### 3.1 Setup
 
-`setup.bat` は次を行うこと。
+`setup.bat` must:
 
-1. 利用可能な Python 3.10+ を検出する
-2. `.venv` がなければ仮想環境を作成する
-3. `requirements.txt` の依存をインストールする
-4. 既定モデルを準備する
+1. Find Python 3.10+ in this order: `python`, `py -3`, `py`.
+2. Create `.venv` if it does not exist.
+3. Install `requirements.txt`.
+4. Prepare a default model.
 
-Python 検出順序:
+Environment variables:
 
-1. `python`
-2. `py -3`
-3. `py`
-
-どれも Python 3.10+ でなければ、セットアップはエラー終了する。
+- `SETUP_MODEL` default: `openai/whisper-tiny`
+- `SETUP_MODEL_CACHE_DIR` default: `.cache_whisper`
+- `SETUP_WEIGHT_FORMAT` default: `int8`
 
 ### 3.2 Model handling
 
-アプリは次の 2 形式のモデル指定を受け付けること。
+The app must support two model inputs:
 
-- OpenVINO Whisper IR ディレクトリ
-- Hugging Face の Whisper model ID
+- Local OpenVINO Whisper IR directory
+- Hugging Face Whisper model ID
 
-model ID の場合は次の条件で自動変換すること。
+When a model ID is provided, the app must export it with:
 
-- エクスポートは `automatic-speech-recognition-with-past` を使う
-- 出力先は `--model-cache-dir` または `SETUP_MODEL_CACHE_DIR` 配下とする
-- 重み形式は `--weight-format` または `SETUP_WEIGHT_FORMAT` で切り替える
+- task: `automatic-speech-recognition-with-past`
+- cache dir: `--model-cache-dir` or `SETUP_MODEL_CACHE_DIR`
+- weight format: `--weight-format` or `SETUP_WEIGHT_FORMAT`
 
-現行アプリで必須とする IR:
+Required IR files:
 
 - `openvino_encoder_model.xml`
 - `openvino_encoder_model.bin`
@@ -54,62 +52,66 @@ model ID の場合は次の条件で自動変換すること。
 - `openvino_tokenizer.xml`
 - `openvino_detokenizer.xml`
 
-任意ファイル:
+Optional IR files:
 
 - `openvino_decoder_with_past_model.xml`
 - `openvino_decoder_with_past_model.bin`
 
-任意ファイルが無い場合でも、必須 IR が揃っていれば有効モデルとして扱う。  
-この場合、アプリは警告ログを表示して続行する。
+If optional files are missing, the app should log that clearly and continue.
 
 ### 3.3 Realtime transcription
 
-アプリはマイクから音声を取り込み、発話区間のみを推論に送ること。
+The app must:
 
-要件:
+- capture microphone audio using `sounddevice.InputStream`
+- use mono 16 kHz audio
+- use WebRTC VAD to segment speech
+- send completed segments to `WhisperPipeline.generate()`
+- display transcripts in CLI and GUI
 
-- `sounddevice.InputStream` を使用する
-- モノラル 16kHz を既定とする
-- WebRTC VAD を使って無音区間を除外する
-- 発話終了後にセグメントをまとめて `WhisperPipeline.generate()` に渡す
-- 結果テキストを逐次 CLI / GUI に表示する
+### 3.4 Language token handling
 
-### 3.4 CLI
+- CLI `--language` default must be `"<|ja|>"`.
+- The implementation must normalize shorthand values such as `ja` or `en` to the actual token expected by the model.
+- Accepted language values are defined by `generation_config.json` `lang_to_id`.
+- Before the first transcription call, the app must validate that the resolved language exists in `lang_to_id`.
+- If the requested language is not present, the application must fail fast with a clear configuration error.
 
-CLI は次をサポートすること。
+### 3.5 CLI
+
+CLI options must include:
 
 - `--list-mics`
-- 標準のリアルタイム認識実行
-- `--device` で `AUTO` `CPU` `GPU` `NPU` を選択
-- `--model` / `--model-id`
+- `--device` with `AUTO`, `CPU`, `GPU`, `NPU`
+- `--model`
+- `--model-id`
 - `--language`
 - `--task`
 - `--model-cache-dir`
 - `--weight-format`
 - `--mic`
+- `--gui`
+- `--cli`
 
-`--gui` と `--cli` を同時指定した場合はエラーにする。
+`--gui` and `--cli` cannot be used together.
 
-### 3.5 GUI
+### 3.6 GUI
 
-GUI は次を提供すること。
+The GUI must provide:
 
-- モデル入力欄
-- デバイス選択
-- マイク選択
-- `Start` / `Stop` / `Clear`
-- ステータス表示
-- 認識結果表示
-- ログ表示
-
-モデルのロードと音声認識は UI スレッドをブロックしないこと。
+- model/device context display
+- microphone selection
+- `Start`, `Stop`, `Clear`
+- status display
+- transcript display
+- log display
 
 ## 4. Non-functional requirements
 
-- 単一ユーザー向けのローカルアプリであること
-- セットアップと実行が `setup.bat` / `run.bat` で完結すること
-- モデル未準備時は自動準備にフォールバックすること
-- 実装は Python ファイル単位で責務分離すること
+- Use a local-first Windows app architecture.
+- Setup and run must work via `setup.bat` and `run.bat`.
+- Missing model files must be reported clearly.
+- Python-side failures must be surfaced as readable messages.
 
 ## 5. Dependencies
 
@@ -123,14 +125,8 @@ GUI は次を提供すること。
 - `sounddevice`
 - `webrtcvad-wheels`
 
-## 6. Operational assumptions
+## 6. Known limitations
 
-- 初回セットアップではモデル変換に時間がかかる
-- モデル変換にはネットワーク接続が必要になる場合がある
-- `decoder_with_past` が出力されないモデルでも、必須 IR が揃っていれば現行アプリは利用を試みる
-
-## 7. Known limitations
-
-- 音声区間の切り出しは VAD ベースで、話者分離は行わない
-- 出力保存機能や字幕ファイル出力は未実装
-- GUI から変更できる設定は最小限
+- VAD-based segmentation can miss very short utterances.
+- Transcript export formats such as SRT/TXT are not implemented.
+- GUI settings are intentionally minimal.

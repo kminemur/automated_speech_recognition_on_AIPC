@@ -17,11 +17,12 @@ asr_engine.py
   Shared realtime ASR engine
   Captures microphone audio
   Applies WebRTC VAD
+  Resolves Whisper language tokens from generation_config.json
   Runs WhisperPipeline inference
 
 realtime_asr.py
   CLI runner
-  Prints status, logs, and transcripts
+  Prints status and transcripts
 
 asr_gui.py
   PyQt6 GUI
@@ -43,17 +44,14 @@ run.bat
 
 ### 2.1 Setup
 
-`setup.bat` の処理順:
+`setup.bat`:
 
-1. `python` を試す
-2. `py -3` を試す
-3. `py` を試す
-4. Python 3.10+ なら採用する
-5. `.venv` を作成する
-6. `requirements.txt` をインストールする
-7. `ensure_model_available()` を呼び、既定モデルを準備する
+1. Finds Python 3.10+.
+2. Creates `.venv`.
+3. Installs dependencies.
+4. Calls `ModelManager.export_hf_model()` for the default model.
 
-既定値:
+Defaults:
 
 - `SETUP_MODEL=openai/whisper-tiny`
 - `SETUP_MODEL_CACHE_DIR=.cache_whisper`
@@ -61,83 +59,68 @@ run.bat
 
 ### 2.2 Run
 
-`run.bat` は `.venv` の存在を確認し、`python app.py %*` を実行する薄いラッパーである。
+`run.bat` activates `.venv` and runs `python app.py %*`.
 
 ## 3. App flow
 
 ### 3.1 Entry point
 
-`app.py` は次を担当する。
+`app.py`:
 
-- 引数解析
-- `--list-mics` の即時処理
-- `ASRConfig` の生成
-- CLI / GUI の分岐
+- parses CLI args
+- handles `--list-mics`
+- resolves the model through `ModelManager`
+- starts CLI or GUI mode
 
-既定動作は CLI 起動で、`--gui` 指定時のみ GUI を起動する。
+Language argument policy:
+
+- `app.py` defaults `--language` to `"<|ja|>"`.
+- `app.py` passes the raw language argument to `ASREngine`.
 
 ### 3.2 Model resolution
 
-`model_manager.ensure_model_available()` は次の順でモデルを解決する。
+`model_manager.ensure_model_available()`:
 
-1. 引数が有効な IR ディレクトリか判定する
-2. `cache_dir / model.replace("/", "--")` に既存変換済みモデルがあるか判定する
-3. なければ `optimum-cli export openvino` を実行する
-4. `optimum-cli` が見つからない場合は `python -m optimum.exporters.openvino` を使う
-5. 必須 IR が揃っているか再検証する
+1. uses a local IR directory if `--model` is provided
+2. exports a Hugging Face model if `--model-id` is provided
+3. otherwise searches default cache locations
+4. validates required IR files
+5. warns when optional `decoder_with_past` files are missing
 
-必須 IR:
+### 3.3 Language resolution
 
-- encoder
-- decoder
-- tokenizer
-- detokenizer
+`ASREngine`:
 
-任意 IR:
+1. loads `generation_config.json` from the selected model directory
+2. reads the `lang_to_id` map
+3. accepts direct keys such as `"<|ja|>"`
+4. normalizes shorthand values such as `ja` to a real `lang_to_id` key
+5. raises a clear configuration error if resolution fails
 
-- `decoder_with_past`
-
-任意 IR が無い場合でもモデルは有効とする。  
-`asr_engine.py` は不足をログ出力した上で `WhisperPipeline` の初期化を試みる。
-
-エクスポート時の task は固定で `automatic-speech-recognition-with-past` を使う。
+`WhisperPipeline.generate()` must be called only with the resolved language token.
 
 ## 4. Audio pipeline
 
-`asr_engine.RealtimeASREngine` は共有エンジンであり、CLI と GUI の両方から利用される。
+`ASREngine`:
 
-処理の流れ:
-
-1. モデルを準備する
-2. 任意 IR の不足を確認し、必要なら警告ログを出す
-3. `WhisperPipeline` を生成する
-4. generation config に `language` `task` `return_timestamps` を設定する
-5. `sounddevice.InputStream` でマイク入力を開始する
-6. コールバックで float32 音声をキューへ入れる
-7. ワーカースレッド側で PCM16 に変換し、WebRTC VAD で発話判定する
-8. 発話セグメントを連結して `pipeline.generate(audio.tolist())` を呼ぶ
-9. テキストを抽出してイベントとして返す
-
-既定設定:
-
-- `sample_rate=16000`
-- `block_duration_ms=30`
-- `silence_ms_to_flush=700`
-- `pre_speech_padding_ms=300`
-- `vad_aggressiveness=2`
-- `max_buffer_seconds=15.0`
+1. initializes `WhisperPipeline`
+2. opens `sounddevice.InputStream`
+3. receives mono 16 kHz audio
+4. applies WebRTC VAD on PCM16 frames
+5. accumulates speech segments
+6. converts buffered audio to float32
+7. calls `pipeline.generate(audio.tolist(), language=..., task=...)`
+8. pushes recognized text to the result queue
 
 ## 5. CLI design
 
-`realtime_asr.py` の責務:
+`realtime_asr.py`:
 
-- マイク一覧表示
-- ステータス出力
-- ログ出力
-- 認識テキスト出力
-- `SIGINT` / `SIGTERM` による停止
+- starts the engine
+- prints transcripts as they arrive
+- stops cleanly on `SIGINT` and `SIGTERM`
 
-ステータスは少なくとも次を使う。
+Status values:
 
 - `Loading model`
 - `Listening`
@@ -145,39 +128,20 @@ run.bat
 - `Error`
 - `Stopped`
 
-ワーカースレッド内の例外はログとステータスに変換し、不要な traceback を表に出さない。
-
 ## 6. GUI design
 
-`asr_gui.py` は `QThread` 上でエンジンを動かす。
-
-構成:
+`asr_gui.py` contains:
 
 - `ASRWorker`
-  - `RealtimeASREngine` の起動と停止
-  - status / log / transcript の signal 中継
 - `MainWindow`
-  - モデル入力
-  - デバイス選択
-  - マイク選択
-  - `Start` `Stop` `Clear`
-  - ステータス表示
-  - 認識結果表示
-  - ログ表示
+- `ASRGUI`
+
+The worker owns the engine and emits status, log, and transcript signals.
 
 ## 7. Error handling policy
 
-- Python 3.10+ が見つからなければ `setup.bat` は即時終了する
-- `.venv` がなければ `run.bat` は `setup.bat` 実行を要求して終了する
-- 変換後に必須 IR が欠けていれば例外を投げる
-- 任意 IR が欠けていても警告ログのみで続行する
-- 推論や音声入力で例外が出たら `Error` ステータスを通知する
-
-## 8. Current gaps
-
-実装済みでない項目:
-
-- 認識結果のファイル保存
-- GUI 上での高度な VAD 調整
-- SRT / TXT 出力
-- バックグラウンド再試行や進捗バー
+- missing Python 3.10+ is a setup error
+- missing `.venv` is a run error
+- missing required IR files is a model configuration error
+- missing optional IR files is a warning
+- language mismatch in `generation_config.json` is a startup/configuration error, not a per-segment transcription retry case
