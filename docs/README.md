@@ -1,15 +1,27 @@
 # docs
 
-このディレクトリには、OpenVINO 2026.0 を使ったリアルタイム音声認識アプリの設計資料を置く。
+このフォルダには、OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を使った
+リアルタイム音声認識アプリの設計資料を置く。
 
-- `requirements.md`: 機能要件、非機能要件、受け入れ条件
-- `architecture.md`: コンポーネント構成、データフロー、責務分割
+読む順番:
 
-実装前の合意形成にも、実装後の見直しにも使える内容にしている。
+1. `requirements.md`
+2. `architecture.md`
 
-補足:
-- アプリはローカルの OpenVINO IR モデルだけでなく Hugging Face の Whisper モデル ID も受け付ける
-- モデル ID が指定された場合、初回起動時に自動ダウンロードし `optimum-cli export openvino` で IR に変換して再利用する
-- `setup.bat` は Python を自動検出して `.venv` を作成し、依存導入後に既定モデルのダウンロードと IR 変換も先に実行する
-- `run.bat` は既定で CLI を起動し、GUI は `--gui` 指定時のみ起動する
-- GUI の `Start` は安定性のためモデルロードをメインスレッドで行うため、開始直後に短時間 UI が停止することがある
+重要:
+
+- このアプリは `WhisperPipeline` を使うため、Whisper の OpenVINO IR は
+  `automatic-speech-recognition-with-past` で変換したものだけを使う。
+- `automatic-speech-recognition` で変換した IR は使わない。
+- 間違った IR を使うと、推論時に `beam_idx was not found` が発生する。
+
+最低限の確認項目:
+
+- モデルディレクトリに `openvino_decoder_with_past_model.xml` がある
+- モデルディレクトリに `openvino_decoder_with_past_model.bin` がある
+- `setup.bat` が `--task automatic-speech-recognition-with-past` を使っている
+
+トラブル時:
+
+- 既存キャッシュを削除して再エクスポートする
+- ローカル IR を `--model` で直接渡している場合は、その IR 自体を作り直す

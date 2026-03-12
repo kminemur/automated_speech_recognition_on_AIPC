@@ -1,157 +1,155 @@
-# 音声認識アプリ要件定義
+# 音声認識アプリ要件
 
 ## 1. 目的
 
-本アプリは、Windows PC 上でマイク入力をリアルタイムに音声認識し、日本語を中心としたテキスト化を行うデスクトップアプリケーションである。推論エンジンには OpenVINO 2026.0 と `openvino-genai` の `WhisperPipeline` を用い、CPU / GPU / NPU のいずれでも動作できる構成を目指す。
+Windows 上でマイク入力を受け取り、OpenVINO 2026.0 と
+`openvino-genai` の `WhisperPipeline` でリアルタイム音声認識を行う。
+GUI と CLI の両方を提供する。
 
-## 2. 対象ユーザー
+## 2. 最重要制約
 
-- AIPC や OpenVINO 対応環境で音声認識を試したい開発者
-- 日本語音声をリアルタイムに文字起こししたいユーザー
-- OpenVINO のデバイス差分を評価したい技術者
+### 2.1 モデル変換方式
 
-## 3. スコープ
+このアプリは `WhisperPipeline` を使うため、Whisper の OpenVINO IR は必ず次で変換する。
 
-### 3.1 対象
+```powershell
+optimum-cli export openvino --model <model_id> --task automatic-speech-recognition-with-past <output_dir>
+```
 
-- マイク入力を用いたリアルタイム音声認識
-- OpenVINO IR 形式 Whisper モデルの読み込み
-- Hugging Face 上の Whisper モデル取得と OpenVINO IR への変換
-- PyQt6 による GUI アプリ
-- CLI モードでの実行
-- 認識結果と内部ログの表示
+使ってはいけない変換:
 
-### 3.2 対象外
+```powershell
+optimum-cli export openvino --model <model_id> --task automatic-speech-recognition <output_dir>
+```
 
-- サーバー配信型の API 提供
-- 音声ファイル一括バッチ処理
-- 話者分離
-- 句読点補正や要約などの高度な後処理
-- 学習やファインチューニング
+理由:
+
+- `WhisperPipeline` は `decoder_with_past` を前提に動作する
+- `with-past` でない IR には必要な入力が揃わない
+- 代表的な失敗が `beam_idx was not found`
+
+### 2.2 有効なモデルディレクトリの条件
+
+有効な Whisper GenAI 用 IR ディレクトリには、少なくとも次が存在すること。
+
+- `openvino_encoder_model.xml`
+- `openvino_encoder_model.bin`
+- `openvino_decoder_model.xml`
+- `openvino_decoder_model.bin`
+- `openvino_decoder_with_past_model.xml`
+- `openvino_decoder_with_past_model.bin`
+- `openvino_tokenizer.xml`
+- `openvino_detokenizer.xml`
+
+上記のどれかが無ければ、そのディレクトリはこのアプリでは無効とみなす。
+
+## 3. 対象ユーザー
+
+- OpenVINO 対応 Windows PC で音声認識を試したいユーザー
+- AIPC の CPU / GPU / NPU を切り替えて検証したいユーザー
+- Whisper を GUI と CLI の両方で使いたいユーザー
 
 ## 4. 機能要件
 
-### 4.1 基本機能
+### 4.1 基本
 
-- ユーザーは GUI から認識開始、停止、表示クリアを実行できること
-- ユーザーは使用する Whisper モデルディレクトリまたは Hugging Face モデル ID を指定できること
-- ユーザーは推論デバイスとして `CPU`、`GPU`、`NPU`、`AUTO` を選択できること
-- ユーザーは入力マイクデバイスを選択できること
-- ユーザーは認識タスクとして `transcribe` または `translate` を選択できること
-- ユーザーは言語トークンを指定できること
-- ユーザーはセグメント長やサンプルレートなど主要パラメータを変更できること
-- ユーザーは自動変換時のモデル保存先と重み精度を指定できること
+- マイク入力をリアルタイムに取得できる
+- WebRTC VAD で発話区間を切り出せる
+- 発話ごとに `WhisperPipeline.generate()` で認識できる
+- 認識結果を GUI と CLI に表示できる
+- ログと状態を表示できる
 
-### 4.2 音声入力機能
+### 4.2 モデル管理
 
-- アプリはシステムの入力デバイス一覧を取得できること
-- アプリは選択されたマイクからモノラル音声を取得できること
-- 音声入力中のレベルを GUI に表示できること
-- 入力音声は 16kHz を既定値として扱えること
+- `--model` にローカルの IR ディレクトリまたは Hugging Face の model ID を指定できる
+- model ID を指定した場合は自動で OpenVINO IR に変換できる
+- 変換時は必ず `automatic-speech-recognition-with-past` を使う
+- 不正なキャッシュを検出したら再エクスポートできる
 
-### 4.3 音声区間検出
+### 4.3 CLI
 
-- アプリは WebRTC VAD を使って発話区間を検出できること
-- 無音区間でセグメントを確定できること
-- 最大チャンク秒数を超えた場合にもセグメントを確定できること
-- 短すぎる断片音声は認識対象から除外できること
+- 既定では CLI モードで起動できる
+- `--list-mics` で入力デバイス一覧を表示できる
+- `--gui` で GUI を起動できる
+- `--device` で `CPU` `GPU` `NPU` `AUTO` を選べる
+- `--language` と `--task` を指定できる
 
-### 4.4 認識処理
+### 4.4 GUI
 
-- アプリは OpenVINO 形式の Whisper モデルをロードできること
-- アプリは Hugging Face モデル ID が指定された場合、モデルをダウンロードして OpenVINO IR に変換できること
-- アプリは `WhisperPipeline.generate()` を使って音声配列からテキストを生成できること
-- 同一文の連続重複出力をある程度抑制できること
-- 認識結果はタイムスタンプ付きで表示できること
-
-### 4.5 UI / UX
-
-- 認識テキスト表示領域とログ表示領域を分離すること
-- モデル未指定やモデル未存在時は開始前にエラーを通知すること
-- 起動中はモデルやデバイスなど、動作に影響する項目を編集不可にすること
-- 停止時に入力ストリームとワーカースレッドを安全に終了できること
-- GUI の `Start` 実行時はモデルロード中に短時間 UI が停止しても、異常終了せず開始できること
-
-### 4.6 CLI 機能
-
-- `run.bat` で既定のコンソールモードを起動できること
-- `--cli` でコンソールモードを明示起動できること
-- `--gui` で GUI モードを明示起動できること
-- `--list-mics` でマイク一覧を表示できること
-- `--model`、`--device`、`--sample-rate`、`--chunk-seconds`、`--language`、`--task` を引数で指定できること
-- `--model-cache-dir` と `--weight-format` を引数で指定できること
+- モデル、デバイス、マイク、言語、タスクを変更できる
+- `Start`、`Stop`、`Clear` を持つ
+- テキスト表示、ログ表示、入力レベル表示を持つ
+- モデルロードは UI を固めないように別スレッドで行う
 
 ## 5. 非機能要件
 
-### 5.1 性能
+### 5.1 安定性
 
-- 体感リアルタイムに近い認識を行えること
-- 初回モデルロード後は OpenVINO のキャッシュにより再起動時の待ち時間を短縮できること
-- GUI スレッドをブロックせずに認識できること
-- ただし GUI の初回 `Start` に伴うモデルロード処理では、安定性確保のため短時間の UI 停止を許容すること
+- 不正なモデルを使った場合は明示的なエラーを出す
+- `beam_idx was not found` のような再発しやすい問題を docs とコードの両方で防ぐ
+- `setup.bat` と実行時の自動準備で同じ変換方式を使う
 
 ### 5.2 保守性
 
-- 音声入力、VAD、推論、GUI を分離した構造にすること
-- GUI と CLI が同じ認識エンジンを再利用できること
-- 設定は 1 つの設定クラスに集約すること
+- GUI / CLI / エンジン / モデル管理の責務を分離する
+- 共通設定は 1 つの設定クラスで管理する
 
-### 5.3 可搬性
+### 5.3 実行環境
 
-- Windows 上でセットアップしやすいこと
-- Python 3.10 以上で動作すること
-- `setup.bat` が利用可能な Python 3 系実行環境を自動検出して仮想環境を作成できること
-- OpenVINO 2026.0 の公開パッケージ群と整合すること
+- Windows
+- Python 3.10 以上
+- OpenVINO 2026.0
 
-### 5.4 信頼性
+## 6. 依存関係
 
-- モデルロード失敗時に異常終了ではなくエラーメッセージを返すこと
-- 音声デバイス未接続や使用不可時に原因が分かるログを出すこと
-- 停止操作時にリソースリークを起こさないこと
+- `openvino==2026.0.0`
+- `openvino-genai==2026.0.0.0`
+- `openvino-tokenizers==2026.0.0.0`
+- `optimum-intel[openvino]`
+- `huggingface_hub`
+- `sounddevice`
+- `webrtcvad-wheels`
+- `PyQt6`
 
-## 6. 技術要件
+## 7. セットアップ要件
 
-- OS: Windows
-- 言語: Python
-- GUI: PyQt6
-- 音声入力: `sounddevice`
-- VAD: `webrtcvad-wheels`
-- 推論: `openvino==2026.0.0`
-- 認識パイプライン: `openvino-genai==2026.0.0.0`
-- Tokenizer 依存: `openvino-tokenizers==2026.0.0.0`
+`setup.bat` は次を行う。
 
-## 7. 想定ディレクトリ構成
+- 利用可能な Python を探して `.venv` を作る
+- `requirements.txt` をインストールする
+- 必要なら `torch` を入れる
+- 既定モデルを `automatic-speech-recognition-with-past` で変換する
+
+## 8. 運用ルール
+
+### 8.1 新しいモデルを使うとき
+
+- model ID 指定なら、このアプリの自動変換に任せる
+- 手動変換する場合も `automatic-speech-recognition-with-past` を使う
+
+### 8.2 ローカル IR を直接渡すとき
+
+- `openvino_decoder_with_past_model.xml` が無い IR は使わない
+- 以前に `automatic-speech-recognition` で作った IR を流用しない
+
+### 8.3 エラー時
+
+次のエラーが出たら、原因はまずモデル変換方式を疑う。
 
 ```text
-.
-├─ app.py
-├─ asr_engine.py
-├─ asr_gui.py
-├─ realtime_asr.py
-├─ requirements.txt
-├─ run.bat
-├─ setup.bat
-└─ docs/
-   ├─ requirements.md
-   └─ architecture.md
+Port for tensor name beam_idx was not found.
 ```
 
-## 8. 受け入れ条件
+対処:
 
-- `setup.bat` 実行後に依存関係が導入され、既定モデルが OpenVINO IR に変換されること
-- `run.bat` で CLI が起動できること
-- `run.bat --list-mics` で入力デバイス一覧が表示できること
-- `run.bat --gui` で GUI が起動できること
-- GUI から `Start` を押すとマイク入力が始まり、発話後に認識結果が表示されること
-- `Stop` を押すと録音と認識処理が停止すること
-- `Clear` を押すとテキスト表示とログ表示が消去されること
-- `.venv` の Python から `app.py --list-mics` で入力デバイス一覧が表示されること
-- `.venv` の Python から `app.py --cli --model <model_dir or model_id>` で CLI 実行できること
+1. モデルディレクトリに `openvino_decoder_with_past_model.xml` があるか確認する
+2. 無ければキャッシュを削除する
+3. `with-past` で再エクスポートする
 
-## 9. リスクと前提
+## 9. 受け入れ条件
 
-- OpenVINO IR 化済みモデルを直接使うか、Hugging Face モデル ID からの自動変換が必要である
-- NPU ではモデルや動的 shape 条件によって動作差が出る可能性がある
-- VAD 設定次第で発話区間の切り出し品質が変わる
-- マイクやドライバ環境により `sounddevice` の挙動が異なる可能性がある
-- 初回セットアップは依存とモデル変換に時間がかかる可能性がある
+- `run.bat --list-mics` が動作する
+- `run.bat` で CLI 起動できる
+- `run.bat --gui` で GUI 起動できる
+- 正しい `with-past` モデルで音声認識できる
+- 誤った IR を使った場合は、黙って壊れず分かる形で失敗する

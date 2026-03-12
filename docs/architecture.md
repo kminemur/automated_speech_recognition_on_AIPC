@@ -1,240 +1,122 @@
 # 音声認識アプリ アーキテクチャ
 
-## 1. 設計方針
-
-アプリは「GUI/CLI と認識ロジックを分離する」ことを中心方針とする。表示層に依存しない共通エンジンを持つことで、PyQt6 GUI と CLI の両方から同一の認識処理を利用できるようにする。
-
-## 2. コンポーネント構成
-
-### 2.1 `app.py`
-
-- アプリ全体のエントリーポイント
-- コマンドライン引数の解釈
-- CLI 既定 / GUI 明示起動のモード切り替え
-- 設定値を `ASRConfig` にまとめて各実行モードへ渡す
-
-### 2.2 `asr_engine.py`
-
-- 音声認識の中核
-- マイク入力の取得
-- 入力バッファ管理
-- WebRTC VAD による発話区間検出
-- OpenVINO `WhisperPipeline` による推論
-- 認識結果、状態、ログ、音量レベルのコールバック通知
-
-### 2.3 `model_manager.py`
-
-- モデル準備の補助モジュール
-- ローカル OpenVINO IR ディレクトリの検証
-- Hugging Face モデル ID の判定
-- `optimum-cli export openvino` によるダウンロードと IR 変換
-- 変換済みモデルのキャッシュ再利用
-
-### 2.4 `asr_gui.py`
-
-- PyQt6 ベースのデスクトップ UI
-- モデル、デバイス、マイク、言語、タスク、チャンク秒数などの設定 UI
-- 認識結果表示
-- ログ表示
-- Start / Stop / Clear 操作
-- エンジンからのイベントを Qt Signal 経由で UI に反映
-
-### 2.5 `realtime_asr.py`
-
-- 既存互換や簡易起動用の CLI ラッパー
-- 実処理は `app.py --cli` に委譲
-
-### 2.6 補助ファイル
-
-- `requirements.txt`: Python 依存管理
-- `setup.bat`: 仮想環境作成、依存導入、既定モデル準備
-- `run.bat`: 既定モデルや既定デバイスを考慮した CLI 優先起動
-
-## 3. 論理構造
+## 1. 構成
 
 ```text
-+-------------------+
-|   app.py          |
-|  - arg parsing    |
-|  - mode switch    |
-+---------+---------+
-          |
-          +----------------------+
-          |                      |
-          v                      v
-+-------------------+   +-------------------+
-|   asr_gui.py      |   |   CLI mode        |
-|  PyQt6 UI         |   |  console output   |
-+---------+---------+   +---------+---------+
-          |                       |
-          +-----------+-----------+
-                      |
-                      v
-             +--------------------+
-             |  model_manager.py  |
-             |  model prep/cache  |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             |   asr_engine.py    |
-             |  audio + VAD + ASR |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             | WhisperPipeline    |
-             | OpenVINO 2026.0    |
-             +--------------------+
+app.py
+  -> CLI 起動 or GUI 起動
+  -> 共通設定 ASRConfig を生成
+
+model_manager.py
+  -> モデル入力値の解決
+  -> Hugging Face model ID の自動変換
+  -> Whisper GenAI 用 IR の妥当性検証
+
+asr_engine.py
+  -> マイク入力
+  -> VAD
+  -> 発話バッファリング
+  -> WhisperPipeline 推論
+
+realtime_asr.py
+  -> CLI ラッパー
+
+asr_gui.py
+  -> PyQt6 GUI
+  -> バックグラウンド起動
+  -> 状態 / ログ / 結果表示
 ```
 
-## 4. データフロー
+## 2. データフロー
 
-1. ユーザーが GUI または CLI で設定を与えて起動する。
-2. `app.py` が引数を解釈して `ASRConfig` を生成する。引数が無ければ CLI を起動し、GUI は `--gui` 指定時のみ起動する。
-3. `RealtimeASREngine` が `model_manager.py` を通してモデルディレクトリを確定する。
-4. ローカル IR が無い場合は Hugging Face からモデルを取得し、OpenVINO IR に変換する。
-5. `RealtimeASREngine` が OpenVINO Whisper モデルをロードする。
-6. `sounddevice.InputStream` からマイク音声を取得する。
-7. 音声は内部キューに蓄積され、ワーカースレッドが順次処理する。
-8. VAD が発話フレームと無音フレームを判定する。
-9. 発話終了または最大長到達時にセグメントを確定する。
-10. 確定した音声セグメントを `WhisperPipeline.generate()` に渡す。
-11. 得られたテキストを軽く正規化し、重複を抑制する。
-12. 結果を GUI または CLI に通知して表示する。
+1. ユーザーが `app.py` を起動する
+2. 引数を `ASRConfig` にまとめる
+3. `model_manager.py` がモデルを解決する
+4. model ID の場合は OpenVINO IR に変換する
+5. `asr_engine.py` が `WhisperPipeline` をロードする
+6. `sounddevice.InputStream` でマイク入力を取得する
+7. WebRTC VAD で発話区間を判定する
+8. 発話セグメントを `WhisperPipeline.generate()` に渡す
+9. 結果を CLI または GUI に表示する
 
-## 5. 並行処理モデル
+## 3. モデル管理ポリシー
 
-- 音声キャプチャは `sounddevice` のコールバックで実行する
-- 推論処理は別ワーカースレッドで実行する
-- GUI 更新は Qt Signal を経由してメインスレッドで行う
-- GUI の `Start` に伴う OpenVINO / WhisperPipeline の初期化は、Windows 上の安定性を優先してメインスレッドで実行する
+### 3.1 許可するモデル
 
-この分離により、モデルロード後は推論が走っている間も UI 操作性を維持しやすくする。
+- OpenVINO Whisper GenAI 用 IR ディレクトリ
+- Hugging Face 上の Whisper model ID
 
-## 6. 主要クラス設計
+### 3.2 model ID からの変換
 
-### 6.1 `ASRConfig`
+変換コマンドは必ず次と同義であること。
 
-責務:
+```powershell
+optimum-cli export openvino ^
+  --model <model_id> ^
+  --task automatic-speech-recognition-with-past ^
+  --weight-format <weight_format> ^
+  <output_dir>
+```
 
-- モデルパス
-- モデルキャッシュディレクトリ
-- 自動変換時の重み精度
-- デバイス
-- サンプルレート
-- チャンク秒数
-- マイク index
-- 言語
-- タスク
-- VAD パラメータ
-- キャッシュディレクトリ
+### 3.3 禁止事項
 
-目的:
+次のような IR を `WhisperPipeline` に渡さない。
 
-- GUI / CLI / エンジン間の設定受け渡しを統一する
+- `automatic-speech-recognition` で変換した IR
+- `openvino_decoder_with_past_model.xml` を持たない IR
+- tokenizer / detokenizer が揃っていない IR
 
-### 6.2 `RealtimeASREngine`
+### 3.4 妥当性検証
 
-主な責務:
+`model_manager.py` はロード前に必須ファイルを検査する。
+キャッシュ済みモデルが不正なら削除し、再エクスポートする。
 
-- 設定検証
-- Whisper モデルロード
-- モデル自動準備の呼び出し
-- マイク入力開始・停止
-- 音声フレームのバッファリング
-- VAD 状態管理
-- セグメント確定
-- 推論実行
-- 結果通知
+## 4. エラー設計
 
-外部インターフェース:
-
-- `start()`
-- `stop()`
-- `running`
-
-通知チャネル:
-
-- `on_status`
-- `on_log`
-- `on_transcript`
-- `on_level`
-
-### 6.3 `MainWindow`
-
-主な責務:
-
-- ユーザー設定入力
-- エンジン生成と破棄
-- 開始停止ボタン制御
-- 認識結果表示
-- ログ表示
-- エラー表示
-- `Start` 実行時の安全なエンジン初期化
-
-## 7. 状態遷移
+### 4.1 再発防止したい代表例
 
 ```text
-Idle
-  -> LoadingModel
-  -> Listening
-  -> Transcribing
-  -> Listening
-  -> Stopped
-
-Error は任意状態から遷移しうる
+Port for tensor name beam_idx was not found.
 ```
 
-補足:
+意味:
 
-- 実装上は `Transcribing` を明示 state にしなくてもよい
-- UI 表示上は `Loading model`、`Listening`、`Stopped`、`Error` を見せると十分
+- `WhisperPipeline` が期待する decoder-with-past 系の入力が無い
+- ほぼ確実にモデル変換方式が誤っている
 
-## 8. エラーハンドリング方針
+対策:
 
-- モデルパス不正: 開始前に検知してユーザーへ通知
-- モデルダウンロード/変換失敗: エラー状態へ遷移し詳細ログを出力
-- モデルロード失敗: エラー状態へ遷移し詳細ログを出力
-- マイク利用不可: 開始失敗として UI/CLI に通知
-- 推論中例外: ログ出力後に安全停止、または停止を促す
+- docs に `with-past` 必須を明記する
+- `setup.bat` も実行時の自動変換も同じ設定にする
+- 必須ファイル検査で早めに落とす
 
-## 9. 拡張ポイント
+### 4.2 UI / CLI の状態
 
-- 音声ファイル入力モードの追加
-- 認識履歴の保存機能
-- VAD パラメータの GUI 露出
-- モデル切り替えプリセット
-- 発話途中の部分文字起こし
-- 字幕形式エクスポート
+状態は次を使う。
 
-## 10. 採用理由
+- `Loading model`
+- `Listening`
+- `Transcribing`
+- `Stopped`
+- `Error`
 
-### OpenVINO + WhisperPipeline
+## 5. スレッド設計
 
-- OpenVINO 2026.0 の CPU / GPU / NPU 実行を活かせる
-- OpenVINO IR モデルを直接扱える
-- Whisper 系モデルを比較的少ない実装量で扱える
+### 5.1 CLI
 
-### PyQt6
+- メインスレッドで起動
+- 音声処理は `RealtimeASREngine` 内のワーカースレッドで処理
 
-- Windows デスクトップアプリとして扱いやすい
-- Signal/Slot によりワーカースレッド連携がしやすい
+### 5.2 GUI
 
-### sounddevice
+- Qt のメインスレッドは UI 専用
+- モデルロード開始は `QThread` で行う
+- エンジンからの通知は signal 経由で UI に反映する
 
-- Python からマイク入力をシンプルに扱える
+## 6. 将来拡張
 
-### WebRTC VAD
-
-- 無音区間によるセグメント分割を軽量に行える
-
-## 11. 実装時の注意点
-
-- NPU 利用時はモデル互換性を事前確認する
-- `CACHE_DIR` を使ってモデルキャッシュを有効にする
-- `setup.bat` は Python 3.10 固定ではなく、利用可能な Python 3 系実行環境を探索して使う
-- GUI スレッドから直接推論を呼ばない
-- ただし GUI の `Start` に伴うモデルロードは、Windows での access violation 回避のためメインスレッドで行う
-- 停止時は InputStream、キュー、ワーカースレッドの順に確実に閉じる
-- 認識結果は完全一致重複のみでも最低限抑制しておく
+- 認識履歴の保存
+- SRT / TXT 出力
+- VAD パラメータの GUI 詳細設定
+- モデル切り替え時の事前検証 UI
+- 失敗モデルの自動隔離
