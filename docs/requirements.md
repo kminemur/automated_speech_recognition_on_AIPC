@@ -2,15 +2,15 @@
 
 ## 1. Goal
 
-Build a Windows realtime speech recognition app using OpenVINO 2026.0 and `openvino-genai` `WhisperPipeline`.
+Build a Windows realtime speech recognition app using OpenVINO 2026.2 and `openvino-genai` `WhisperPipeline`.
 The app must support both CLI and PyQt6 GUI operation, and the documented flow must match the current code path closely enough that the app can be reimplemented without guessing.
 
 ## 2. Supported runtime
 
 - OS: Windows
 - Shell: PowerShell / `cmd`
-- Python: 3.10+
-- Runtime: OpenVINO 2026.0
+- Python: 3.12+
+- Runtime: OpenVINO 2026.2
 - Audio input: microphone
 
 ## 3. Functional requirements
@@ -19,8 +19,8 @@ The app must support both CLI and PyQt6 GUI operation, and the documented flow m
 
 `setup.bat` must:
 
-1. Find Python 3.10+ in this order: `python`, `py -3`, `py`.
-2. Reject Python versions below 3.10.
+1. Find Python 3.12+ in this order: `python`, `py -3`, `py`.
+2. Reject Python versions below 3.12.
 3. Create `.venv` if it does not exist.
 4. Activate `.venv`.
 5. Install `requirements.txt`.

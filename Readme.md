@@ -1,14 +1,14 @@
-# OpenVINO 2026.0 Realtime ASR App
+# OpenVINO 2026.2 Realtime ASR App
 
-Windows realtime speech recognition app built on OpenVINO 2026.0 and `openvino-genai` `WhisperPipeline`.
+Windows realtime speech recognition app built on OpenVINO 2026.2 and `openvino-genai` `WhisperPipeline`.
 It supports both CLI and PyQt6 GUI modes.
 
 ## Requirements
 
 - Windows
 - PowerShell or `cmd`
-- Python 3.10+
-- OpenVINO 2026.0
+- Python 3.12+
+- OpenVINO 2026.2
 
 ## Setup
 
@@ -18,7 +18,7 @@ It supports both CLI and PyQt6 GUI modes.
 
 `setup.bat`:
 
-- finds Python 3.10+
+- finds Python 3.12+
 - creates `.venv`
 - installs `requirements.txt`
 - prepares the default model `openai/whisper-tiny` in `.cache_whisper`
@@ -82,6 +82,13 @@ Required IR files:
 Optional IR files:
 
 - `openvino_decoder_with_past_model.xml/.bin`
+
+## Documentation
+
+The root README is the only README. Detailed implementation notes live in:
+
+- `docs/requirements.md`
+- `docs/architecture.md`
 
 ## Files
 

@@ -33,7 +33,7 @@ asr_gui.py
   Displays status, logs, and transcripts
 
 setup.bat
-  Finds Python 3.10+
+  Finds Python 3.12+
   Creates .venv
   Installs dependencies
   Prepares default model
@@ -50,7 +50,7 @@ run.bat
 `setup.bat`:
 
 1. Probes `python`, then `py -3`, then `py`.
-2. Verifies Python 3.10+.
+2. Verifies Python 3.12+.
 3. Creates `.venv` when missing.
 4. Activates `.venv`.
 5. Installs `requirements.txt`.
@@ -165,7 +165,7 @@ The main window is responsible for microphone selection, start/stop controls, an
 
 ## 7. Error handling policy
 
-- missing Python 3.10+ is a setup error
+- missing Python 3.12+ is a setup error
 - missing `.venv` is a run error
 - missing required IR files is a model configuration error
 - missing optional IR files is a warning
