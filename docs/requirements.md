@@ -10,6 +10,7 @@ The app must support both CLI and PyQt6 GUI operation, and the documented flow m
 - OS: Windows
 - Shell: PowerShell / `cmd`
 - Python: 3.12+
+- Environment manager: uv
 - Runtime: OpenVINO 2026.2
 - Audio input: microphone
 
@@ -17,14 +18,22 @@ The app must support both CLI and PyQt6 GUI operation, and the documented flow m
 
 ### 3.1 Setup
 
-`setup.bat` must:
+The project must use `uv sync` for environment setup.
 
-1. Find Python 3.12+ in this order: `python`, `py -3`, `py`.
-2. Reject Python versions below 3.12.
-3. Create `.venv` if it does not exist.
-4. Activate `.venv`.
-5. Install `requirements.txt`.
-6. Export the default Whisper model into OpenVINO IR.
+`pyproject.toml` must:
+
+1. Declare `requires-python = ">=3.12"`.
+2. Declare all runtime dependencies needed for CLI, GUI, model export, and audio capture.
+3. Be usable with `uv sync` to create or update `.venv`.
+
+`uv sync` must:
+
+1. Resolve Python 3.12+.
+2. Create `.venv` if it does not exist.
+3. Install dependencies from `pyproject.toml`.
+4. Write or update `uv.lock`.
+
+Model export is an application behavior and must not require a separate dependency-install step.
 
 Environment variables:
 
@@ -139,7 +148,8 @@ The GUI worker may own the engine and forward status, log, and transcript events
 ## 4. Non-functional requirements
 
 - Use a local-first Windows app architecture.
-- Setup and run must work via `setup.bat` and `run.bat`.
+- Setup must work via `uv sync`.
+- Run commands must work via `uv run python app.py ...`.
 - Missing model files must be reported clearly.
 - Python-side failures must be surfaced as readable messages.
 - The documentation must prefer exact current behavior over vague future intentions.

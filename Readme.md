@@ -7,29 +7,31 @@ It supports both CLI and PyQt6 GUI modes.
 
 - Windows
 - PowerShell or `cmd`
-- Python 3.12+
+- Python 3.12+ or uv-managed Python
+- uv
 - OpenVINO 2026.2
 
 ## Setup
 
 ```powershell
-.\setup.bat
+uv sync
 ```
 
-`setup.bat`:
+`uv sync`:
 
-- finds Python 3.12+
+- reads `pyproject.toml`
 - creates `.venv`
-- installs `requirements.txt`
-- prepares the default model `openai/whisper-tiny` in `.cache_whisper`
+- installs runtime dependencies
 
-Optional setup variables:
+The default model `openai/whisper-tiny` is exported into `.cache_whisper` when the app first needs it.
+
+Optional model variables:
 
 ```powershell
 $env:SETUP_MODEL="openai/whisper-small"
 $env:SETUP_MODEL_CACHE_DIR=".cache_whisper"
 $env:SETUP_WEIGHT_FORMAT="int8"
-.\setup.bat
+uv run python app.py --model-id $env:SETUP_MODEL --model-cache-dir $env:SETUP_MODEL_CACHE_DIR --weight-format $env:SETUP_WEIGHT_FORMAT
 ```
 
 ## Run
@@ -37,19 +39,19 @@ $env:SETUP_WEIGHT_FORMAT="int8"
 CLI:
 
 ```powershell
-.\run.bat
+uv run python app.py
 ```
 
 List microphones:
 
 ```powershell
-.\run.bat --list-mics
+uv run python app.py --list-mics
 ```
 
 GUI:
 
 ```powershell
-.\run.bat --gui
+uv run python app.py --gui
 ```
 
 ## Main options
@@ -97,5 +99,4 @@ The root README is the only README. Detailed implementation notes live in:
 - `asr_engine.py`: shared realtime ASR engine
 - `realtime_asr.py`: CLI runner
 - `asr_gui.py`: PyQt6 GUI
-- `setup.bat`: setup script
-- `run.bat`: launcher
+- `pyproject.toml`: uv dependency definition

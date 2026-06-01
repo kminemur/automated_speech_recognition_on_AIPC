@@ -32,29 +32,23 @@ asr_gui.py
   Runs the engine through a worker object
   Displays status, logs, and transcripts
 
-setup.bat
-  Finds Python 3.12+
-  Creates .venv
-  Installs dependencies
-  Prepares default model
-
-run.bat
-  Activates .venv
-  Runs app.py
+pyproject.toml
+  Defines Python version and runtime dependencies for uv sync
 ```
 
 ## 2. Startup flow
 
 ### 2.1 Setup
 
-`setup.bat`:
+`uv sync`:
 
-1. Probes `python`, then `py -3`, then `py`.
-2. Verifies Python 3.12+.
+1. Reads `pyproject.toml`.
+2. Resolves Python 3.12+.
 3. Creates `.venv` when missing.
-4. Activates `.venv`.
-5. Installs `requirements.txt`.
-6. Calls `ModelManager.export_hf_model()` for the default model.
+4. Installs runtime dependencies.
+5. Writes or updates `uv.lock`.
+
+Model export is handled by application startup when a model is requested.
 
 Defaults:
 
@@ -64,7 +58,11 @@ Defaults:
 
 ### 2.2 Run
 
-`run.bat` activates `.venv` and runs `python app.py %*`.
+Run commands use `uv run`, which executes inside the synced environment:
+
+```powershell
+uv run python app.py
+```
 
 ## 3. App flow
 
@@ -166,7 +164,7 @@ The main window is responsible for microphone selection, start/stop controls, an
 ## 7. Error handling policy
 
 - missing Python 3.12+ is a setup error
-- missing `.venv` is a run error
+- missing or unsynced `.venv` is resolved by `uv sync` or `uv run`
 - missing required IR files is a model configuration error
 - missing optional IR files is a warning
 - language mismatch in `generation_config.json` is a startup/configuration error, not a per-segment transcription retry case
