@@ -23,12 +23,12 @@ uv sync
 - creates `.venv`
 - installs runtime dependencies
 
-The default model `openai/whisper-tiny` is exported into `.cache_whisper` when the app first needs it.
+The default model `OpenVINO/whisper-large-v3-turbo-int8-ov` is downloaded into `.cache_whisper` when the app first needs it.
 
 Optional model variables:
 
 ```powershell
-$env:SETUP_MODEL="openai/whisper-small"
+$env:SETUP_MODEL="OpenVINO/whisper-large-v3-turbo-int8-ov"
 $env:SETUP_MODEL_CACHE_DIR=".cache_whisper"
 $env:SETUP_WEIGHT_FORMAT="int8"
 uv run python app.py --model-id $env:SETUP_MODEL --model-cache-dir $env:SETUP_MODEL_CACHE_DIR --weight-format $env:SETUP_WEIGHT_FORMAT
@@ -85,6 +85,8 @@ Optional IR files:
 
 - `openvino_decoder_with_past_model.xml/.bin`
 
+When a Hugging Face model repository already contains the required OpenVINO IR files, the app downloads that repository snapshot directly. Otherwise, it exports the model with Optimum.
+
 ## Documentation
 
 The root README is the only README. Detailed implementation notes live in:
@@ -95,7 +97,7 @@ The root README is the only README. Detailed implementation notes live in:
 ## Files
 
 - `app.py`: entry point
-- `model_manager.py`: model validation and export
+- `model_manager.py`: model validation, download, and export
 - `asr_engine.py`: shared realtime ASR engine
 - `realtime_asr.py`: CLI runner
 - `asr_gui.py`: PyQt6 GUI

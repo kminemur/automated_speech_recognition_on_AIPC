@@ -33,11 +33,11 @@ The project must use `uv sync` for environment setup.
 3. Install dependencies from `pyproject.toml`.
 4. Write or update `uv.lock`.
 
-Model export is an application behavior and must not require a separate dependency-install step.
+Model download or export is an application behavior and must not require a separate dependency-install step.
 
 Environment variables:
 
-- `SETUP_MODEL` default: `openai/whisper-tiny`
+- `SETUP_MODEL` default: `OpenVINO/whisper-large-v3-turbo-int8-ov`
 - `SETUP_MODEL_CACHE_DIR` default: `.cache_whisper`
 - `SETUP_WEIGHT_FORMAT` default: `int8`
 
@@ -48,9 +48,13 @@ The app must support two model inputs:
 - Local OpenVINO Whisper IR directory via `--model`
 - Hugging Face Whisper model ID via `--model-id`
 
-If neither `--model` nor `--model-id` is provided, the app must use the default model ID `openai/whisper-tiny`.
+If neither `--model` nor `--model-id` is provided, the app must use the default model ID `OpenVINO/whisper-large-v3-turbo-int8-ov`.
 
-When a model ID is provided, the app must export it with:
+When a model ID is provided and the Hugging Face repository already contains the required OpenVINO IR files, the app must download that repository snapshot into:
+
+- output directory: `<cache_dir>/<model_id with '/' replaced by '--'>`
+
+When a model ID is provided and the Hugging Face repository does not already contain the required OpenVINO IR files, the app must export it with:
 
 - command entrypoint: `python -m optimum.commands.optimum_cli export openvino`
 - task: `automatic-speech-recognition-with-past`
@@ -83,8 +87,8 @@ Optional IR files:
 Behavior rules:
 
 - A local model directory passed by `--model` must be validated and must fail immediately if required files are missing.
-- A cached default or exported Hugging Face model directory must not be accepted only because the directory exists.
-- If the directory exists but required files are missing, the app must try to export again.
+- A cached default, downloaded, or exported Hugging Face model directory must not be accepted only because the directory exists.
+- If the directory exists but required files are missing, the app must try to refresh it by downloading a pre-converted OpenVINO repo or exporting again.
 - If optional files are missing, the app should log that clearly and continue.
 - `generation_config.json` must exist and must contain `lang_to_id`.
 
@@ -171,4 +175,4 @@ The GUI worker may own the engine and forward status, log, and transcript events
 - VAD-based segmentation can miss very short utterances.
 - Transcript export formats such as SRT/TXT are not implemented.
 - GUI settings are intentionally minimal.
-- First-time model export can take time and may produce non-fatal tracer warnings from upstream libraries.
+- First-time model download or export can take time. Exported models may produce non-fatal tracer warnings from upstream libraries.

@@ -10,9 +10,10 @@ app.py
 
 model_manager.py
   Validates local IR directories
-  Exports Hugging Face Whisper models to OpenVINO IR
+  Downloads pre-converted Hugging Face OpenVINO IR repositories
+  Exports Hugging Face Whisper models to OpenVINO IR when needed
   Distinguishes required IR files from optional decoder_with_past files
-  Retries export when cached model directories are incomplete
+  Refreshes cached model directories when they are incomplete
 
 asr_engine.py
   Shared realtime ASR engine
@@ -48,11 +49,11 @@ pyproject.toml
 4. Installs runtime dependencies.
 5. Writes or updates `uv.lock`.
 
-Model export is handled by application startup when a model is requested.
+Model download or export is handled by application startup when a model is requested.
 
 Defaults:
 
-- `SETUP_MODEL=openai/whisper-tiny`
+- `SETUP_MODEL=OpenVINO/whisper-large-v3-turbo-int8-ov`
 - `SETUP_MODEL_CACHE_DIR=.cache_whisper`
 - `SETUP_WEIGHT_FORMAT=int8`
 
@@ -89,18 +90,19 @@ Language argument policy:
 `model_manager.ensure_model_available()`:
 
 1. uses a local IR directory if `--model` is provided
-2. exports a Hugging Face model if `--model-id` is provided
-3. otherwise exports the default model ID `openai/whisper-tiny`
-4. validates required IR files
-5. warns when optional `decoder_with_past` files are missing
-6. validates `generation_config.json` and `lang_to_id`
+2. downloads a Hugging Face OpenVINO IR repository if `--model-id` points to one
+3. exports a Hugging Face model if the repository does not already contain OpenVINO IR files
+4. otherwise uses the default model ID `OpenVINO/whisper-large-v3-turbo-int8-ov`
+5. validates required IR files
+6. warns when optional `decoder_with_past` files are missing
+7. validates `generation_config.json` and `lang_to_id`
 
-`model_manager.export_hf_model()`:
+`model_manager.resolve_hf_model()`:
 
 1. derives the output directory from the cache root and model ID
-2. accepts an already valid export directory
-3. re-exports if the directory exists but is incomplete
-4. runs `python -m optimum.commands.optimum_cli export openvino`
+2. accepts an already valid model directory
+3. downloads the repository snapshot when the repo already has the required OpenVINO IR files
+4. exports with `python -m optimum.commands.optimum_cli export openvino` when the repo is not pre-converted
 5. forces UTF-8 stdio environment variables for the export subprocess on Windows
 6. validates the resulting IR directory before returning
 
@@ -123,14 +125,15 @@ Language argument policy:
 1. initializes `WhisperPipeline`
 2. opens `sounddevice.InputStream`
 3. receives mono 16 kHz audio in 30 ms frames
-4. converts input frames to PCM16 for WebRTC VAD
-5. accumulates speech frames and trailing silence
-6. pushes completed segments onto a queue
-7. transcribes queued segments outside the callback thread
-8. calls `pipeline.generate(audio.tolist(), language=..., task=...)`
-9. pushes recognized text to the result queue and callbacks
+4. copies callback frames into an in-memory input queue
+5. converts queued frames to PCM16 for WebRTC VAD outside the audio callback
+6. accumulates speech frames and trailing silence in memory
+7. pushes completed segments onto a queue
+8. transcribes queued segments outside the callback thread
+9. calls `pipeline.generate(audio.tolist(), language=..., task=...)`
+10. pushes recognized text to the result queue and callbacks
 
-This separation between audio callback and inference is intentional and should be preserved.
+The audio callback must stay lightweight: it copies microphone frames into memory and returns quickly. VAD, segmentation, and inference run outside the callback.
 
 ## 5. CLI design
 
